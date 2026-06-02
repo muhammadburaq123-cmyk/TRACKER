@@ -196,6 +196,23 @@ input[type=color]::-webkit-color-swatch{border-radius:4px;border:none;}
   .hub-cards{grid-template-columns:1fr;}
 }
 </style>
+  
+  <link id="pwa-manifest" rel="manifest"/>
+<script>
+(function(){
+  const icon="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="90" fill="#0d1117"/><text x="256" y="370" font-size="310" text-anchor="middle" fill="#f59e0b" font-family="Arial,sans-serif">⚡</text></svg>');
+  const mf={
+    name:'GFT Hub',short_name:'GFT Hub',
+    start_url:location.href,display:'standalone',
+    background_color:'#0d1117',theme_color:'#0d1117',
+    icons:[{src:icon,sizes:'512x512',type:'image/svg+xml',purpose:'any maskable'}]
+  };
+  document.getElementById('pwa-manifest').href=URL.createObjectURL(new Blob([JSON.stringify(mf)],{type:'application/manifest+json'}));
+  const al=document.createElement('link');al.rel='apple-touch-icon';al.href=icon;
+  document.head.appendChild(al);
+})();
+</script>
+  
 </head>
 <body>
 
