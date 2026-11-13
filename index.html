@@ -190,10 +190,8 @@ input[type=color]::-webkit-color-swatch{border-radius:4px;border:none;}
 .jpill.win{background:#34d39922;color:var(--green);}
 .jpill.loss{background:#f8717122;color:var(--red);}
 .jaddbox{display:none;margin-top:6px;gap:6px;}
-@media(max-width:800px){.jg{grid-template-columns:repeat(2,1fr);}.jspan2,.jspan6{grid-column:span 2;}}
-
-/* ── Sync bar extra ── */
 .jnote{font-size:11px;color:var(--muted);margin-top:8px;}
+@media(max-width:800px){.jg{grid-template-columns:repeat(2,1fr);}.jspan2,.jspan6{grid-column:span 2;}}
 
 /* ── Responsive ── */
 @media(max-width:700px){.cal-layout{grid-template-columns:1fr;}.cal-summary-panel{display:none;}.cal-day{min-height:60px;padding:5px 6px;}}
@@ -551,7 +549,7 @@ const G = {
 };
 let gftSyncTimeout = null;
 
-function gftMk(id,lbl){return{id,label:lbl||'Account '+id,accNum:'',broker:'Goat Funded Trader',server:'GoatFunder-Server',startBal:5000,ddDay:4,ddMax:8,deadlineDays:30,profitTarget:10,dailyProfitCap:2,color:DEFAULT_COLOR,log:[],deadline:gftAd(gftTd(),30)};}
+function gftMk(id,lbl){return{id,label:lbl||'Account '+id,accNum:'',broker:'Goat Funded Trader',server:'GoatFunder-Server',startBal:5000,ddDay:4,ddMax:8,deadlineDays:30,profitTarget:10,dailyProfitCap:2,color:DEFAULT_COLOR,log:[],journal:[],deadline:gftAd(gftTd(),30)};}
 function gftTd(){const d=new Date();return d.getFullYear()+'-'+gftZ(d.getMonth()+1)+'-'+gftZ(d.getDate());}
 function gftZ(n){return String(n).padStart(2,'0');}
 function gftAd(s,n){const d=new Date(s);d.setDate(d.getDate()+n);return d.getFullYear()+'-'+gftZ(d.getMonth()+1)+'-'+gftZ(d.getDate());}
@@ -563,10 +561,10 @@ function gftPc(n){return n>=0?'#34d399':'#f87171';}
 
 function gftSetSS(state,msg){const d=document.getElementById('gft-syncDot'),t=document.getElementById('gft-syncText');if(!d||!t)return;d.className='sync-dot';if(state)d.classList.add(state);t.textContent=msg;}
 
-// Sync payload now carries accounts AND the trade journal + custom strategies
+// Sync payload: accounts (each with its own journal) + shared custom strategies
 async function gftPush(){
   gftSetSS('syncing','Syncing...');
-  const payload={accs:G.accs,sel:G.sel,nid:G.nid,journal:J.trades,strats:J.strats};
+  const payload={accs:G.accs,sel:G.sel,nid:G.nid,strats:J.strats};
   try{
     const r=await fetch(GFT_URL,{method:'POST',body:JSON.stringify({action:'save',data:payload}),headers:{'Content-Type':'text/plain'},redirect:'follow'});
     const j=await r.json();
@@ -583,14 +581,15 @@ async function gftPull(){
       G.accs=j.data.accs;G.nid=j.data.nid;
       G.sel=G.accs.find(a=>a.id===kSel)?kSel:G.accs[0].id;
       G.pa=kPa;G.pn=kPn;
-      if(Array.isArray(j.data.journal))J.trades=j.data.journal;
       if(Array.isArray(j.data.strats))J.strats=j.data.strats;
-      localStorage.setItem(GFT_KEY,JSON.stringify(j.data));
+      if(Array.isArray(j.data.journal))J.trades=j.data.journal;
+      jMigrate();
+      localStorage.setItem(GFT_KEY,JSON.stringify({accs:G.accs,sel:G.sel,nid:G.nid,strats:J.strats}));
       gftSetSS('ok','Synced · '+new Date().toLocaleTimeString());
     }else gftSetSS('ok','Ready');
   }catch(e){
     const c=localStorage.getItem(GFT_KEY);
-    if(c){try{const p=JSON.parse(c);G.accs=p.accs;G.nid=p.nid;if(Array.isArray(p.journal))J.trades=p.journal;if(Array.isArray(p.strats))J.strats=p.strats;}catch(_){}}
+    if(c){try{const p=JSON.parse(c);G.accs=p.accs;G.nid=p.nid;if(Array.isArray(p.strats))J.strats=p.strats;}catch(_){}}
     gftSetSS('err','Offline — cached data');
   }
   gftRender();
@@ -806,20 +805,32 @@ function gftLogSection(acc,acol){
   return`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><p class="sec-title" style="margin:0;"><i class="ti ti-list" style="font-size:13px;vertical-align:-1px;"></i> PnL history</p><button class="btn btn-danger" style="font-size:11px;padding:3px 10px;" onclick="gftClearLog()"><i class="ti ti-trash" style="font-size:12px;vertical-align:-1px;"></i> Clear all</button></div><div class="log-scroll"><div class="fhr" style="padding-bottom:6px;border-bottom:1px solid ${acol}44;">${['Date','Amount','Note','Balance',''].map((h,i)=>`<span style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;${i===3?'text-align:right;':''}">${h}</span>`).join('')}</div>${rows}</div></div>`;
 }
 
-function gftSelA(id){G.sel=id;G.em=false;gftRender();}
+function gftSelA(id){G.sel=id;G.em=false;gftRender();if(currentScreen==='journal')jRender();}
 function gftAddA(){const a=gftMk(G.nid++);G.accs.push(a);G.sel=a.id;G.em=false;gftSchedulePush();gftRender();}
-function gftRmA(id){if(G.accs.length<=1)return;if(!confirm('Remove this account?'))return;G.accs=G.accs.filter(a=>a.id!==id);G.sel=G.accs[0].id;gftSchedulePush();gftRender();}
+function gftRmA(id){if(G.accs.length<=1)return;if(!confirm('Remove this account and its journal?'))return;G.accs=G.accs.filter(a=>a.id!==id);G.sel=G.accs[0].id;gftSchedulePush();gftRender();}
 function gftTogEdit(){G.eb={...G.accs.find(a=>a.id===G.sel)};G.em=!G.em;gftRender();}
 function gftEbu(k,v){if(G.eb)G.eb[k]=v;}
 function gftSaveEd(){G.accs=G.accs.map(a=>{if(a.id!==G.sel)return a;const u={...G.eb};u.deadline=gftAd(u.log.length?u.log[0].date:gftTd(),u.deadlineDays||30);return u;});G.em=false;gftSchedulePush();showToast('Saved ✓');gftRender();}
 function gftLogP(){const amt=parseFloat(G.pa);if(isNaN(amt))return;const t=gftTd();G.accs=G.accs.map(a=>{if(a.id!==G.sel)return a;return{...a,log:[{id:Date.now(),date:t,amt,note:G.pn},...a.log],deadline:gftAd(t,a.deadlineDays||30)};});G.pa='';G.pn='';gftSchedulePush();showToast('Entry added ✓');gftRender();}
-function gftRmE(eid){G.accs=G.accs.map(a=>{if(a.id!==G.sel)return a;const nl=a.log.filter(e=>e.id!==eid);return{...a,log:nl,deadline:gftAd(nl.length?nl[0].date:gftTd(),a.deadlineDays||30)};});gftSchedulePush();gftRender();}
-function gftClearLog(){if(!confirm('Clear all PnL entries?'))return;G.accs=G.accs.map(a=>a.id!==G.sel?a:{...a,log:[],deadline:gftAd(gftTd(),a.deadlineDays||30)});gftSchedulePush();showToast('Log cleared');gftRender();}
+function gftRmE(eid){
+  jRemoveTrade(eid);
+  G.accs=G.accs.map(a=>{if(a.id!==G.sel)return a;const nl=a.log.filter(e=>e.id!==eid);return{...a,log:nl,deadline:gftAd(nl.length?nl[0].date:gftTd(),a.deadlineDays||30)};});
+  gftSchedulePush();gftRender();
+  if(currentScreen==='journal')jRender();
+}
+function gftClearLog(){
+  if(!confirm('Clear all PnL entries and linked journal trades for this account?'))return;
+  G.accs=G.accs.map(a=>a.id!==G.sel?a:{...a,log:[],journal:[],deadline:gftAd(gftTd(),a.deadlineDays||30)});
+  gftSchedulePush();showToast('Log cleared');gftRender();
+  if(currentScreen==='journal')jRender();
+}
 
 // ═══════════════════════════════════════════════════════════
-// TRADE JOURNAL (Excel-style log: strategy + emotion + auto net/R:R/result)
+// TRADE JOURNAL
+// Each account has its own journal. Journal trades are linked to
+// that account's Dashboard log: the log gets only date, net P&L, and note.
 // ═══════════════════════════════════════════════════════════
-const J = { trades:[], strats:[] };
+const J = { trades:[], strats:[], acc:null };   // acc = account chosen on the Journal page   // trades = legacy only (moved into accounts); strats = shared list
 const J_STRATS = ['News Fade','Trend Following','Mean Reversion','Breakout','ICT Order Block','Supply & Demand','Support/Resistance'];
 const J_EMOS = ['Confident','Calm','Focused','Disciplined','Nervous','Impatient','FOMO','Revenge'];
 
@@ -833,9 +844,52 @@ function jCalc(t){
 }
 function jRows(){
   let run=0;
-  return [...J.trades]
+  return [...(gftCur().journal||[])]
     .sort((a,b)=>((a.date+(a.tin||''))<(b.date+(b.tin||'')))?-1:1)
     .map(t=>{const c=jCalc(t);run+=c.net;return{...t,...c,cum:run};});
+}
+function gftCur(){return G.accs.find(a=>a.id===J.acc)||G.accs.find(a=>a.id===G.sel)||G.accs[0];}
+
+// Keep the Dashboard log in step with a journal trade (same id = linked)
+function jAttachLog(a,t){
+  if(!a.log.some(e=>e.id===t.id)){
+    a.log=[...a.log,{id:t.id,date:t.date,amt:jCalc(t).net,note:t.notes||''}]
+      .sort((x,y)=>x.date<y.date?1:x.date>y.date?-1:0);
+  }
+  const latest=a.log.reduce((m,e)=>e.date>m?e.date:m,'');
+  if(latest)a.deadline=gftAd(latest,a.deadlineDays||30);
+}
+function jPush(t){
+  const a=gftCur();
+  if(!a.journal)a.journal=[];
+  a.journal.push(t);
+  jAttachLog(a,t);
+  gftSchedulePush();
+}
+function jRemoveTrade(id){
+  G.accs=G.accs.map(a=>{
+    const hadJ=(a.journal||[]).some(t=>t.id===id);
+    const nj=(a.journal||[]).filter(t=>t.id!==id);
+    const nl=a.log.filter(e=>e.id!==id);
+    if(!hadJ&&nl.length===a.log.length)return a;
+    const latest=nl.reduce((m,e)=>e.date>m?e.date:m,'');
+    return{...a,journal:nj,log:nl,deadline:latest?gftAd(latest,a.deadlineDays||30):a.deadline};
+  });
+}
+// One-time move of any old journal trades into the account selected at the time
+function jMigrate(){
+  if(!J.trades.length)return;
+  const known=new Set();
+  G.accs.forEach(a=>(a.journal||[]).forEach(t=>known.add(t.id)));
+  const a=gftCur();
+  if(!a.journal)a.journal=[];
+  J.trades.forEach(t=>{
+    if(known.has(t.id))return;
+    a.journal.push(t);
+    jAttachLog(a,t);
+  });
+  J.trades=[];
+  gftSchedulePush();
 }
 
 function jPrev(){
@@ -860,23 +914,27 @@ function jSaveStrat(){
   jRender(v);
 }
 
+function jSelAcc(id){J.acc=id;jRender();}
 function jAdd(){
   const v=id=>document.getElementById(id).value;
   if(v('j_entry')===''||v('j_profit')===''){showToast('Enter at least Entry and Profit');return;}
-  J.trades.push({
+  const t={
     id:Date.now(),date:v('j_date')||gftTd(),dir:v('j_dir'),tin:v('j_tin'),tout:v('j_tout'),
     strat:v('j_strat'),entry:+v('j_entry'),exit:+v('j_exit')||0,sl:+v('j_sl')||0,tp:+v('j_tp')||0,
     lots:+v('j_lots')||0,profit:+v('j_profit'),comm:+v('j_comm')||0,swap:+v('j_swap')||0,
     emo:v('j_emo'),notes:v('j_notes')
-  });
-  gftSchedulePush();
-  showToast('Trade journaled ✓');
-  jRender(v('j_strat'));
+  };
+  jPush(t);
+  showToast('Trade journaled ✓ (added to Dashboard)');
+  jRender(t.strat);
+  gftRender();
 }
 function jDel(id){
-  J.trades=J.trades.filter(t=>t.id!==id);
+  jRemoveTrade(id);
   gftSchedulePush();
+  showToast('Trade removed from journal and Dashboard');
   jRender();
+  gftRender();
 }
 
 function jEq(rows){
@@ -899,6 +957,7 @@ function jEq(rows){
 
 function jRender(selectedStrat){
   const app=document.getElementById('journal-app');if(!app)return;
+  const acc=gftCur();
   const rows=jRows();
   const n=rows.length,wins=rows.filter(r=>r.win),losses=rows.filter(r=>!r.win);
   const net=rows.reduce((s,r)=>s+r.net,0),gw=wins.reduce((s,r)=>s+r.net,0),gl=Math.abs(losses.reduce((s,r)=>s+r.net,0));
@@ -972,12 +1031,13 @@ function jRender(selectedStrat){
         <th>Profit $</th><th>Commission</th><th>Swap</th><th>Net P&amp;L $</th><th>R:R</th>
         <th>Result</th><th>Cum. P&amp;L</th><th class="l">Notes</th><th class="l">Emotion</th><th></th>
       </tr>${body}</table></div>`
-    :`<p style="color:var(--muted);text-align:center;padding:2rem 0;">No trades journaled yet. Add your first trade above.</p>`;
+    :`<p style="color:var(--muted);text-align:center;padding:2rem 0;">No trades journaled for ${gftEsc(acc.label)} yet. Add your first trade above.</p>`;
 
   app.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-      <div><h1 class="h1">Trade Journal</h1><p style="color:var(--muted);font-size:11px;margin-top:2px;">Every trade, every strategy, every emotion</p></div>
+      <div><h1 class="h1">Trade Journal</h1><p style="color:var(--muted);font-size:11px;margin-top:2px;">Account: <b style="color:var(--text);">${gftEsc(acc.label)}</b> · trades also appear on this account's Dashboard</p></div>
     </div>
+    <div class="tabs" style="margin-bottom:10px;">${G.accs.map(a=>`<span class="tab ${a.id===acc.id?'active-tab':''}" style="${a.id===acc.id?`border-color:${a.color};color:${a.color};`:''}" onclick="jSelAcc(${a.id})"><span class="cswatch" style="background:${a.color};"></span>${gftEsc(a.label)}</span>`).join('')}</div>
     <div class="g4" style="grid-template-columns:repeat(6,minmax(0,1fr));">${stats}</div>
     <div class="card"><p class="sec-title"><i class="ti ti-chart-line" style="font-size:13px;vertical-align:-1px;"></i> Equity curve (net P&amp;L)</p>${jEq(rows)}</div>
     ${form}
@@ -1124,13 +1184,15 @@ function ctClearLog(){if(!confirm('Clear all trades?'))return;const acc=ctGetAcc
 // ═══════════════════════════════════════════════════════════
 async function startApp(){
   const gc=localStorage.getItem(GFT_KEY);
-  if(gc){try{const p=JSON.parse(gc);G.accs=p.accs;G.sel=p.sel;G.nid=p.nid;if(Array.isArray(p.journal))J.trades=p.journal;if(Array.isArray(p.strats))J.strats=p.strats;}catch(_){}}
+  if(gc){try{const p=JSON.parse(gc);G.accs=p.accs;G.sel=p.sel;G.nid=p.nid;if(Array.isArray(p.strats))J.strats=p.strats;}catch(_){}}
   const cc=localStorage.getItem(CT_KEY);
   if(cc){try{CS=JSON.parse(cc);}catch(_){}}
   if(!CS.accounts||!CS.accounts.length){CS={accounts:[ctMkAcc(1,'GFT #1'),ctMkAcc(2,'GFT #2')],activeAcc:1};}
+  G.accs.forEach(a=>{if(!a.journal)a.journal=[];});
   ctCheckReset();
   document.getElementById('loading').style.display='none';
   showScreen('home');
+  jMigrate();
   gftPull();
   ctPullData();
 }
